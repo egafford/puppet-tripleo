@@ -130,6 +130,11 @@
 #  When set, enables SSL on the Ceilometer public API endpoint using the specified file.
 #  Defaults to undef
 #
+# [*sahara_certificate*]
+#  Filename of an HAProxy-compatible certificate and key file
+#  When set, enables SSL on the Sahara public API endpoint using the specified file.
+#  Defaults to undef
+#
 # [*swift_certificate*]
 #  Filename of an HAProxy-compatible certificate and key file
 #  When set, enables SSL on the Swift public API endpoint using the specified file.
@@ -169,6 +174,10 @@
 # [*manila*]
 #  (optional) Enable or not Manila API binding
 #  Defaults to false
+#
+# [*sahara*]
+#  (optional) Enable or not Sahara API binding
+#  defaults to false
 #
 # [*glance_api*]
 #  (optional) Enable or not Glance API binding
@@ -258,6 +267,7 @@ class tripleo::loadbalancer (
   $keystone_certificate      = undef,
   $neutron_certificate       = undef,
   $cinder_certificate        = undef,
+  $sahara_certificate        = undef,
   $manila_certificate        = undef,
   $glance_certificate        = undef,
   $nova_certificate          = undef,
@@ -270,6 +280,7 @@ class tripleo::loadbalancer (
   $keystone_public           = false,
   $neutron                   = false,
   $cinder                    = false,
+  $sahara                    = false,
   $manila                    = false,
   $glance_api                = false,
   $glance_registry           = false,
@@ -401,6 +412,11 @@ class tripleo::loadbalancer (
   } else {
     $cinder_bind_certificate = $service_certificate
   }
+  if $sahara_certificate {
+    $sahara_bind_certificate = $sahara_certificate
+  } else {
+    $sahara_bind_certificate = $service_certificate
+  }
   if $manila_certificate {
     $manila_bind_certificate = $manila_certificate
   } else {
@@ -513,6 +529,19 @@ class tripleo::loadbalancer (
     $glance_bind_opts = {
       "${glance_api_vip}:9292" => [],
       "${public_virtual_ip}:9292" => [],
+    }
+  }
+
+  $sahara_api_vip = hiera('sahara_api_vip', $controller_virtual_ip)
+  if $sahara_bind_certificate {
+    $sahara_bind_opts = {
+      "${sahara_api_vip}:8386" => [],
+      "${public_virtual_ip}:13786" => ['ssl', 'crt', $sahara_bind_certificate],
+    }
+  } else {
+    $sahara_bind_opts = {
+      "${sahara_api_vip}:8386" => [],
+      "${public_virtual_ip}:8386" => [],
     }
   }
 
@@ -732,6 +761,23 @@ class tripleo::loadbalancer (
       listening_service => 'manila',
       ports             => '8786',
       ipaddresses       => hiera('manila_api_node_ips', $controller_hosts_real),
+      server_names      => $controller_hosts_names_real,
+      options           => ['check', 'inter 2000', 'rise 2', 'fall 5'],
+    }
+  }
+
+  if $sahara {
+    haproxy::listen { 'sahara':
+      bind             => $sahara_bind_opts,
+      options          => {
+        'option' => [ 'httpchk GET /' ],
+      },
+      collect_exported => false,
+    }
+    haproxy::balancermember { 'sahara':
+      listening_service => 'sahara',
+      ports             => '8386',
+      ipaddresses       => hiera('sahara_api_node_ips', $controller_hosts_real),
       server_names      => $controller_hosts_names_real,
       options           => ['check', 'inter 2000', 'rise 2', 'fall 5'],
     }
